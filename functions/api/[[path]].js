@@ -105,7 +105,9 @@ export async function onRequest(context) {
             if (env.DB) {
                 try {
                     const { results } = await env.DB.prepare('SELECT * FROM products ORDER BY id DESC').all();
-                    products = results.filter(product => product.is_active !== 0);
+                    products = url.searchParams.get('includeInactive') === 'true'
+                        ? results
+                        : results.filter(product => product.is_active !== 0);
                 } catch(e) {
                     products = globalCustomProducts;
                 }
@@ -175,7 +177,7 @@ export async function onRequest(context) {
         // POST /api/products (Add product - Admin)
         if ((path === '/products' || path === '') && method === 'POST') {
             const body = await request.json();
-            const { name, category, price, description, image_url, badge } = body;
+            const { name, category, price, description, image_url, badge, stock } = body;
 
             if (!name || !price) {
                 return new Response(JSON.stringify({ error: 'Tên và giá sản phẩm là bắt buộc' }), { status: 400, headers: corsHeaders });
@@ -188,13 +190,15 @@ export async function onRequest(context) {
                 price: parseInt(price, 10),
                 description: description || '',
                 image_url: image_url || '',
-                badge: badge || ''
+                badge: badge || '',
+                stock: Number.isFinite(Number(stock)) ? Number(stock) : 100,
+                is_active: 1
             };
 
             if (env.DB) {
                 try {
-                    const inserted = await env.DB.prepare('INSERT INTO products (name, category, price, description, image_url, badge) VALUES (?, ?, ?, ?, ?, ?)')
-                        .bind(newProd.name, newProd.category, newProd.price, newProd.description, newProd.image_url, newProd.badge)
+                    const inserted = await env.DB.prepare('INSERT INTO products (name, category, price, description, image_url, badge, stock, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+                        .bind(newProd.name, newProd.category, newProd.price, newProd.description, newProd.image_url, newProd.badge, newProd.stock, newProd.is_active)
                         .run();
                     newProd.id = inserted.meta.last_row_id;
                 } catch(e){}

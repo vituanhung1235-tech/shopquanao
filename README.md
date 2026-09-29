@@ -9,7 +9,7 @@ Hệ thống website thời trang hiện đại được xây dựng chuẩn **M
 5. 🔄 **Full-Stack Frontend / Backend**: Tách biệt rõ ràng API & Giao diện người dùng.
 6. 👤 **Hệ thống User & Admin (Phân quyền)**:
    - **User**: Xem sản phẩm, tìm kiếm, lọc danh mục, thêm giỏ hàng, đặt hàng.
-   - **Admin**: Đăng nhập tài khoản Quản trị, truy cập Dashboard `admin.html`, thêm/sửa/xóa sản phẩm, tải ảnh lên R2, quản lý đơn hàng.
+   - **Admin**: Đăng nhập tài khoản Quản trị, truy cập Dashboard `admin.html`, thêm/sửa/ẩn/hiện/xóa sản phẩm, cập nhật tồn kho, tải ảnh lên R2, quản lý đơn hàng.
 
 ---
 
