@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS products (
     image_url TEXT NOT NULL,
     badge TEXT DEFAULT '',
     stock INTEGER DEFAULT 100,
+    is_active INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

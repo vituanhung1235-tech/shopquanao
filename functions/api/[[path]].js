@@ -1,5 +1,6 @@
 // Cloudflare Pages Functions / Workers Backend API Router
 // Handles Auth (Login/Register), Products (CRUD), Orders, and R2 Image Uploads
+import { buildSystemPrompt, deleteProductIndex, getMinimumMatchScore, getProductCatalog, indexProducts, searchProducts } from './rag.js';
 
 let globalCustomProducts = [
     { id: 'def_101', name: 'áo hoàng gia', category: 'nam', price: 120000, description: 'Phong cách hoàng gia sang trọng, chất liệu vải mềm mại thoáng mát.', image_url: 'assets/images/aohoanggia.jpg', badge: 'Hot' },
@@ -104,7 +105,7 @@ export async function onRequest(context) {
             if (env.DB) {
                 try {
                     const { results } = await env.DB.prepare('SELECT * FROM products ORDER BY id DESC').all();
-                    products = results;
+                    products = results.filter(product => product.is_active !== 0);
                 } catch(e) {
                     products = globalCustomProducts;
                 }
@@ -112,6 +113,63 @@ export async function onRequest(context) {
                 products = globalCustomProducts;
             }
             return new Response(JSON.stringify({ products }), { status: 200, headers: corsHeaders });
+        }
+
+        // POST /api/chat/reindex (Bootstrap or repair the product vector index)
+        if (path === '/chat/reindex' && method === 'POST') {
+            const expectedSecret = env.CHAT_REINDEX_SECRET;
+            const suppliedSecret = request.headers.get('Authorization') || '';
+            if (!expectedSecret || suppliedSecret !== `Bearer ${expectedSecret}`) {
+                return new Response(JSON.stringify({ error: 'Không có quyền thực hiện re-index.' }), { status: 401, headers: corsHeaders });
+            }
+
+            const products = await getProductCatalog(env, globalCustomProducts);
+            const indexed = await indexProducts(env, products);
+            return new Response(JSON.stringify({ message: 'Đã đồng bộ vector sản phẩm.', indexed }), { status: 200, headers: corsHeaders });
+        }
+
+        // POST /api/chat (Product consultation using retrieval-augmented generation)
+        if (path === '/chat' && method === 'POST') {
+            if (!env.AI || !env.VECTORIZE) {
+                return new Response(JSON.stringify({ error: 'Tính năng tư vấn chưa được cấu hình Workers AI và Vectorize.' }), { status: 503, headers: corsHeaders });
+            }
+
+            const body = await request.json();
+            const message = typeof body.message === 'string' ? body.message.trim() : '';
+            if (!message || message.length > 500) {
+                return new Response(JSON.stringify({ error: 'Câu hỏi phải có nội dung và không vượt quá 500 ký tự.' }), { status: 400, headers: corsHeaders });
+            }
+
+            const matches = await searchProducts(env, message, 5);
+            const minimumScore = getMinimumMatchScore(env);
+            const products = matches.filter(product => product.score >= minimumScore);
+            const refusal = 'Xin lỗi, tôi không tìm thấy sản phẩm nào phù hợp trong cửa hàng. Bạn có thể hỏi theo cách khác không?';
+            if (!products.length) {
+                return new Response(JSON.stringify({ answer: refusal, sources: [] }), { status: 200, headers: corsHeaders });
+            }
+
+            const result = await env.AI.run(env.CHAT_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+                messages: [
+                    { role: 'system', content: buildSystemPrompt(products) },
+                    { role: 'user', content: message }
+                ],
+                max_tokens: 400,
+                temperature: 0.2
+            });
+            const answer = typeof result.response === 'string' ? result.response.trim() : '';
+            if (!answer) {
+                return new Response(JSON.stringify({ error: 'Shop chưa tạo được câu trả lời. Vui lòng thử lại.' }), { status: 502, headers: corsHeaders });
+            }
+            return new Response(JSON.stringify({
+                answer,
+                sources: products.map(product => ({
+                    product_id: product.product_id,
+                    name: product.name,
+                    price: product.price,
+                    stock: product.stock,
+                    image_url: product.image_url
+                }))
+            }), { status: 200, headers: corsHeaders });
         }
 
         // POST /api/products (Add product - Admin)
@@ -135,9 +193,10 @@ export async function onRequest(context) {
 
             if (env.DB) {
                 try {
-                    await env.DB.prepare('INSERT INTO products (name, category, price, description, image_url, badge) VALUES (?, ?, ?, ?, ?, ?)')
+                    const inserted = await env.DB.prepare('INSERT INTO products (name, category, price, description, image_url, badge) VALUES (?, ?, ?, ?, ?, ?)')
                         .bind(newProd.name, newProd.category, newProd.price, newProd.description, newProd.image_url, newProd.badge)
                         .run();
+                    newProd.id = inserted.meta.last_row_id;
                 } catch(e){}
             }
 
@@ -146,7 +205,68 @@ export async function onRequest(context) {
                 globalCustomProducts.unshift(newProd);
             }
 
+            try {
+                await indexProducts(env, [newProd]);
+            } catch (error) {
+                console.error('Product created but could not be indexed for chat', error);
+            }
+
             return new Response(JSON.stringify({ message: 'Thêm sản phẩm thành công!', product: newProd }), { status: 200, headers: corsHeaders });
+        }
+
+        // PUT /api/products/:id (Update product or change its visibility)
+        if (path.startsWith('/products/') && method === 'PUT') {
+            const id = path.split('/')[2];
+            const body = await request.json();
+            let currentProduct = null;
+
+            if (env.DB && id) {
+                currentProduct = await env.DB.prepare('SELECT * FROM products WHERE id = ?').bind(id).first();
+            } else {
+                currentProduct = globalCustomProducts.find(product => String(product.id) === String(id));
+            }
+            if (!currentProduct) {
+                return new Response(JSON.stringify({ error: 'Không tìm thấy sản phẩm' }), { status: 404, headers: corsHeaders });
+            }
+
+            const updatedProduct = {
+                ...currentProduct,
+                name: body.name === undefined ? currentProduct.name : String(body.name).trim(),
+                category: body.category === undefined ? currentProduct.category : String(body.category),
+                price: body.price === undefined ? Number(currentProduct.price) : Number(body.price),
+                description: body.description === undefined ? currentProduct.description : String(body.description),
+                image_url: body.image_url === undefined ? currentProduct.image_url : String(body.image_url),
+                badge: body.badge === undefined ? currentProduct.badge : String(body.badge),
+                stock: body.stock === undefined ? Number(currentProduct.stock ?? 0) : Number(body.stock),
+                is_active: body.is_active === undefined ? Number(currentProduct.is_active ?? 1) : (body.is_active ? 1 : 0)
+            };
+            if (!updatedProduct.name || !Number.isFinite(updatedProduct.price) || updatedProduct.price < 0 || !Number.isFinite(updatedProduct.stock) || updatedProduct.stock < 0) {
+                return new Response(JSON.stringify({ error: 'Tên, giá hoặc tồn kho không hợp lệ' }), { status: 400, headers: corsHeaders });
+            }
+
+            if (env.DB) {
+                await env.DB.prepare('UPDATE products SET name = ?, category = ?, price = ?, description = ?, image_url = ?, badge = ?, stock = ?, is_active = ? WHERE id = ?')
+                    .bind(updatedProduct.name, updatedProduct.category, updatedProduct.price, updatedProduct.description || '', updatedProduct.image_url || '', updatedProduct.badge || '', updatedProduct.stock, updatedProduct.is_active, id)
+                    .run();
+            } else {
+                globalCustomProducts = globalCustomProducts.map(product => String(product.id) === String(id) ? updatedProduct : product);
+            }
+
+            if (updatedProduct.is_active) {
+                try {
+                    await indexProducts(env, [updatedProduct]);
+                } catch (error) {
+                    console.error('Product updated but could not be indexed for chat', error);
+                }
+            } else if (env.VECTORIZE) {
+                try {
+                    await deleteProductIndex(env, id);
+                } catch (error) {
+                    console.error('Product hidden but could not be removed from chat index', error);
+                }
+            }
+
+            return new Response(JSON.stringify({ message: 'Cập nhật sản phẩm thành công!', product: updatedProduct }), { status: 200, headers: corsHeaders });
         }
 
         // DELETE /api/products/:id
@@ -158,6 +278,13 @@ export async function onRequest(context) {
                 } catch(e){}
             }
             globalCustomProducts = globalCustomProducts.filter(p => String(p.id) !== String(id));
+            if (env.VECTORIZE && id) {
+                try {
+                    await deleteProductIndex(env, id);
+                } catch (error) {
+                    console.error('Product deleted but could not be removed from chat index', error);
+                }
+            }
             return new Response(JSON.stringify({ message: 'Xóa sản phẩm thành công!' }), { status: 200, headers: corsHeaders });
         }
 

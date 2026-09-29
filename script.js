@@ -686,12 +686,111 @@
         });
     }
 
+    // ===== Product Chat =====
+    const chatPanel = document.getElementById('chatPanel');
+    const chatToggleBtn = document.getElementById('chatToggleBtn');
+    const chatCloseBtn = document.getElementById('chatCloseBtn');
+    const chatForm = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
+    const chatMessages = document.getElementById('chatMessages');
+
+    function toggleChat(isOpen) {
+        if (!chatPanel || !chatToggleBtn) return;
+        chatPanel.hidden = !isOpen;
+        chatToggleBtn.setAttribute('aria-expanded', String(isOpen));
+        if (isOpen && chatInput) chatInput.focus();
+    }
+
+    function appendChatMessage(text, role, extraClass) {
+        const message = document.createElement('div');
+        message.className = `chat-message chat-message--${role}${extraClass ? ` ${extraClass}` : ''}`;
+        message.textContent = text;
+        chatMessages.appendChild(message);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return message;
+    }
+
+    function appendChatSources(message, sources) {
+        if (!Array.isArray(sources) || !sources.length) return;
+        const sourceList = document.createElement('div');
+        sourceList.className = 'chat-sources';
+        sources.forEach(function (source) {
+            const link = document.createElement('a');
+            link.href = '#products';
+            link.className = 'chat-source';
+            link.dataset.productName = source.name;
+            const name = document.createElement('strong');
+            name.textContent = source.name;
+            const details = document.createElement('span');
+            details.textContent = `${formatPrice(source.price)}${Number.isFinite(Number(source.stock)) ? ` · Còn ${source.stock}` : ''} · Xem sản phẩm`;
+            link.append(name, details);
+            sourceList.appendChild(link);
+        });
+        message.appendChild(sourceList);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    if (chatToggleBtn) chatToggleBtn.addEventListener('click', function () {
+        toggleChat(chatPanel.hidden);
+    });
+    if (chatCloseBtn) chatCloseBtn.addEventListener('click', function () { toggleChat(false); });
+
+    if (chatForm) {
+        chatForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const question = chatInput.value.trim();
+            if (!question) return;
+
+            appendChatMessage(question, 'user');
+            chatInput.value = '';
+            chatInput.disabled = true;
+            chatForm.querySelector('button').disabled = true;
+            const loadingMessage = appendChatMessage('Shop đang xem thông tin sản phẩm...', 'assistant', 'chat-message--loading');
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: question })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Hiện chưa thể kết nối tư vấn. Vui lòng thử lại sau.');
+                loadingMessage.remove();
+                const answer = appendChatMessage(data.answer, 'assistant');
+                appendChatSources(answer, data.sources);
+            } catch (error) {
+                loadingMessage.remove();
+                appendChatMessage(error.message || 'Hiện chưa thể kết nối tư vấn. Vui lòng thử lại sau.', 'assistant');
+            } finally {
+                chatInput.disabled = false;
+                chatForm.querySelector('button').disabled = false;
+                chatInput.focus();
+            }
+        });
+    }
+
+    if (chatMessages) {
+        chatMessages.addEventListener('click', function (event) {
+            const sourceLink = event.target.closest('.chat-source');
+            if (!sourceLink || !searchInput) return;
+            searchInput.value = sourceLink.dataset.productName;
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            toggleChat(false);
+            const productCard = Array.from(document.querySelectorAll('#productsGrid .product-card')).find(function (card) {
+                const name = card.querySelector('.product-card__name');
+                return name && name.textContent.trim() === sourceLink.dataset.productName;
+            });
+            if (productCard) productCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+    }
+
     // ===== Keyboard Accessibility =====
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
             closeMenu();
             closeCart();
             closeAuthModal();
+            toggleChat(false);
         }
     });
 

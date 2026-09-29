@@ -511,6 +511,33 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
     </button>
 
+    <!-- ========== PRODUCT CHAT ========== -->
+    <section class="chat-widget" aria-label="Tư vấn sản phẩm">
+        <div class="chat-panel" id="chatPanel" hidden>
+            <div class="chat-panel__header">
+                <div>
+                    <h2>Tư vấn sản phẩm</h2>
+                    <p>Hỏi Shop về mẫu mã và giá</p>
+                </div>
+                <button class="chat-panel__close" id="chatCloseBtn" type="button" aria-label="Đóng tư vấn">&times;</button>
+            </div>
+            <div class="chat-messages" id="chatMessages" aria-live="polite" aria-relevant="additions">
+                <p class="chat-message chat-message--assistant">Xin chào! Bạn đang tìm sản phẩm nào? Mình có thể tư vấn mẫu mã, mô tả và giá hiện có tại Shop.</p>
+            </div>
+            <form class="chat-form" id="chatForm">
+                <label class="visually-hidden" for="chatInput">Tin nhắn tư vấn</label>
+                <input id="chatInput" name="message" maxlength="500" placeholder="Ví dụ: Áo nào dưới 300.000₫?" autocomplete="off" required>
+                <button type="submit" aria-label="Gửi tin nhắn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                </button>
+            </form>
+        </div>
+        <button class="chat-launcher" id="chatToggleBtn" type="button" aria-expanded="false" aria-controls="chatPanel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8A8.5 8.5 0 0 1 8.7 3.9a8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/></svg>
+            <span>Hỏi Shop</span>
+        </button>
+    </section>
+
     <!-- ========== TOAST NOTIFICATION ========== -->
     <div class="toast" id="toast">
         <div class="toast__content">

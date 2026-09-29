@@ -2,6 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "anhkhaishop",
   "pages_build_output_dir": ".",
+  "ai": { "binding": "AI" },
+  "vectorize": [{ "binding": "VECTORIZE", "index_name": "shoplite-products" }],
   "d1_databases": [
     {
       "binding": "DB",
